@@ -1,3 +1,12 @@
+---
+title: "Sanatan Marg: The Digital Path to Sanatan Dharma in Daily Life"
+description: "Discover Sanatan Marg, a Hindu spiritual app offering daily puja guides, mantras, aarti, Panchang, and festival knowledge to help you follow Sanatan Dharma."
+date: "2026-03-09"
+author: "Sanatan Marg"
+category: "Sanatan Dharma"
+tags: ["sanatan dharma", "hinduism", "puja", "mantras", "panchang", "hindu festivals", "spirituality", "sanatan marg"]
+---
+
 # Sanatan Marg: The Digital Path to Sanatan Dharma in Daily Life
 
 In today's fast-paced digital world, many people want to stay connected to their spiritual roots but struggle to find authentic and organized resources. **Sanatan Dharma**, one of the world's oldest spiritual traditions, contains profound wisdom about life, duty, devotion, and self-realization.
@@ -181,5 +190,3 @@ Spirituality does not require leaving modern life behind. Instead, it can become
 By combining tradition with modern digital tools, the platform helps devotees stay connected to their spiritual path every day.
 
 For those seeking a deeper connection with Hindu traditions, **Sanatan Marg** can become a daily companion on the journey of Dharma.
-
----
