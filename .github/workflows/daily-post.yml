@@ -1,0 +1,51 @@
+name: Daily blog post
+
+on:
+  schedule:
+    - cron: "30 1 * * *" # 01:30 UTC = 07:00 IST daily
+  workflow_dispatch: {} # manual "Run workflow" button for testing
+
+# Prevent overlapping runs.
+concurrency:
+  group: daily-post
+  cancel-in-progress: false
+
+permissions:
+  contents: write # allows committing the new post back to this repo
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Devanagari fonts (for Hindi cover images)
+        run: sudo apt-get update && sudo apt-get install -y fonts-noto-core fonts-indic
+
+      - name: Generate today's post
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GSC_CREDENTIALS: ${{ secrets.GSC_CREDENTIALS }}
+        run: node scripts/generate-post.mjs
+
+      - name: Commit & push
+        run: |
+          git config user.name "sanatan-bot"
+          git config user.email "bot@users.noreply.github.com"
+          git add articles/ images/ data/used-keywords.json
+          if git diff --cached --quiet; then
+            echo "Nothing new to commit."
+          else
+            git commit -m "post: auto-generated $(date -u +%F)"
+            git push
+          fi

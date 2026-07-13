@@ -1,0 +1,19 @@
+{
+  "name": "sanatan-marg-content-bot",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Daily SEO blog generator for Sanatan Marg — pulls real keywords from Google Search Console and writes a post with OpenAI.",
+  "packageManager": "pnpm@10.10.0",
+  "scripts": {
+    "test:gsc": "node --env-file-if-exists=.env scripts/test-gsc.mjs",
+    "generate": "node --env-file-if-exists=.env scripts/generate-post.mjs",
+    "generate:dry": "node --env-file-if-exists=.env scripts/generate-post.mjs --dry-run"
+  },
+  "dependencies": {
+    "@resvg/resvg-js": "^2.6.2",
+    "google-auth-library": "^10.9.0",
+    "gray-matter": "^4.0.3",
+    "openai": "^6.46.0"
+  }
+}
