@@ -167,7 +167,9 @@ async function main() {
 
   let coverImage;
   if (COVER_IMAGE) {
-    const imgBuf = generateCoverPng(article.title, { category: article.category });
+    const imgBuf = generateCoverPng(article.cover_title || article.title, {
+      category: article.category,
+    });
     const rel = `${slug}.png`;
     if (DRY) {
       writeFileEnsured(path.join(PREVIEW_DIR, rel), imgBuf);

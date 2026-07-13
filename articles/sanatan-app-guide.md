@@ -1,5 +1,5 @@
 ---
-title: 'sanatan app: A Guide to Choosing a Hindu Spiritual App'
+title: 'Sanatan App: A Guide to Choosing a Hindu Spiritual App'
 description: >-
   Looking for a sanatan app? Learn what to look for in a trustworthy Hindu
   spiritual app and discover Sanatan Marg, a free Android choice for daily

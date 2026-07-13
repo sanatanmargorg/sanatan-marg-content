@@ -16,6 +16,8 @@ export const HINDI_EVERY = 5;
 
 export const COVER_IMAGE = true;
 
+export const COVER_BLOCKED_TERMS = ["sanatan apps", "sanatan app", "sanatanapp"];
+
 export const GSC = {
   siteUrl: "",
   lookbackDays: 90,

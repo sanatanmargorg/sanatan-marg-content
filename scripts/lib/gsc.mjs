@@ -4,11 +4,25 @@ import { GSC } from "../config.mjs";
 
 const SCOPE = "https://www.googleapis.com/auth/webmasters.readonly";
 
+function parseCredentials(raw, source) {
+  try {
+    return JSON.parse(raw);
+  } catch {
+    throw new Error(
+      `Could not parse ${source}: the value is not valid JSON. Re-copy the full service-account key.`,
+    );
+  }
+}
+
 function loadCredentials() {
   const raw = process.env.GSC_CREDENTIALS;
-  if (raw && raw.trim().startsWith("{")) return JSON.parse(raw);
+  if (raw && raw.trim().startsWith("{")) {
+    return parseCredentials(raw, "GSC_CREDENTIALS");
+  }
   const path = process.env.GOOGLE_APPLICATION_CREDENTIALS;
-  if (path) return JSON.parse(fs.readFileSync(path, "utf8"));
+  if (path) {
+    return parseCredentials(fs.readFileSync(path, "utf8"), "GOOGLE_APPLICATION_CREDENTIALS");
+  }
   throw new Error(
     "No Search Console credentials. Set GSC_CREDENTIALS (JSON) or GOOGLE_APPLICATION_CREDENTIALS (file path).",
   );

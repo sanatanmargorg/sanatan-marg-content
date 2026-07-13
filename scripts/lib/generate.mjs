@@ -20,6 +20,23 @@ const CATEGORIES = {
   hi: ["सनातन धर्म", "पूजा एवं अनुष्ठान", "त्योहार", "शास्त्र", "मंत्र एवं चालीसा", "मार्गदर्शिका"],
 };
 
+const MINOR_WORDS = new Set([
+  "a", "an", "the", "and", "or", "but", "nor", "of", "to", "in", "on", "at",
+  "by", "for", "with", "from", "as", "vs",
+]);
+
+function capitalizeTitle(text) {
+  return text
+    .split(" ")
+    .map((word, i) => {
+      const bare = word.toLowerCase().replace(/[^a-z]/g, "");
+      if (i !== 0 && MINOR_WORDS.has(bare)) return word;
+      if (/^[a-z]/.test(word)) return word.charAt(0).toUpperCase() + word.slice(1);
+      return word;
+    })
+    .join(" ");
+}
+
 export function slugify(s) {
   return s
     .toLowerCase()
@@ -61,7 +78,8 @@ Requirements:
 
 Return JSON with EXACTLY these fields:
 {
-  "title": "string, <= 60 chars, includes the keyword",
+  "title": "string, <= 60 chars, includes the keyword. Use proper Title Case — capitalize the keyword too (e.g. 'Sanatan App: A Guide...', never 'sanatan app: a guide...')",
+  "cover_title": "a short headline (<= 50 chars) printed on the article's cover image. It MUST NOT contain the phrase 'Sanatan App' — describe the topic generically instead (e.g. 'Choosing a Hindu Spiritual App'). Same language as the article.",
   "slug": "url-safe lowercase ASCII slug (a-z, 0-9, hyphens only), 3-8 words, <= 60 chars — ALWAYS Latin letters, even for Hindi articles",
   "description": "string, 150-160 chars, includes the keyword, compelling meta description",
   "category": "one of: ${cats.join(" | ")}",
@@ -103,6 +121,10 @@ export async function generateArticle({
   }
   if (!Array.isArray(article.tags) || article.tags.length === 0) {
     article.tags = [keyword];
+  }
+  if (lang === "en") {
+    article.title = capitalizeTitle(article.title);
+    if (article.cover_title) article.cover_title = capitalizeTitle(article.cover_title);
   }
   return article;
 }

@@ -1,4 +1,20 @@
 import { Resvg } from "@resvg/resvg-js";
+import { COVER_BLOCKED_TERMS } from "../config.mjs";
+
+function sanitizeHeadline(text = "") {
+  let out = text;
+  for (const term of COVER_BLOCKED_TERMS) {
+    const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    out = out.replace(new RegExp(escaped, "gi"), " ");
+  }
+  out = out
+    .replace(/\s+/g, " ")
+    .replace(/^[\s:;,.\-–—|]+/, "")
+    .replace(/[\s:;,\-–—|]+$/, "")
+    .trim();
+  if (out.length < 8) return "Sanatan Marg";
+  return out.charAt(0).toUpperCase() + out.slice(1);
+}
 
 function escapeXml(s = "") {
   return s
@@ -29,7 +45,7 @@ function wrapTitle(title, maxChars = 20, maxLines = 4) {
 }
 
 export function generateCoverPng(title, { site = "sanatanmarg.org", category } = {}) {
-  const lines = wrapTitle(title);
+  const lines = wrapTitle(sanitizeHeadline(title));
   const lineHeight = 76;
   const firstY = 330 - (lines.length - 1) * (lineHeight / 2);
   const tspans = lines
