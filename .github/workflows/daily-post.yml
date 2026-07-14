@@ -2,7 +2,7 @@ name: Daily blog post
 
 on:
   schedule:
-    - cron: "30 1 * * *" # 01:30 UTC = 07:00 IST daily
+    - cron: "37 1 * * *" # 01:37 UTC = 07:07 IST daily (odd minute: round slots get starved)
   workflow_dispatch: {} # manual "Run workflow" button for testing
 
 # Prevent overlapping runs.
