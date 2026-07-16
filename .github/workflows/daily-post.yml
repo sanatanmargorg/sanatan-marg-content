@@ -2,7 +2,7 @@ name: Daily blog post
 
 on:
   schedule:
-    - cron: "37 1 * * *" # 01:37 UTC = 07:07 IST daily (odd minute: round slots get starved)
+    - cron: "30 19 * * *" # 19:30 UTC = 01:00 IST daily (next day); GitHub best-effort delay applies
   workflow_dispatch: {} # manual "Run workflow" button for testing
 
 # Prevent overlapping runs.
