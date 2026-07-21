@@ -4,6 +4,7 @@ import matter from "gray-matter";
 import { getClient, resolveSiteUrl, fetchKeywordOpportunities } from "./lib/gsc.mjs";
 import { generateArticle, slugify, mashedTokens } from "./lib/generate.mjs";
 import { generateCoverPng } from "./lib/cover.mjs";
+import { isOnTopic } from "./lib/relevance.mjs";
 import { SITE_URL, REPO, POST_LANG, HINDI_EVERY, COVER_IMAGE, DEDUP } from "./config.mjs";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
@@ -156,6 +157,13 @@ function resolveRunLang(ledger) {
 async function pickKeyword(ledger, mode) {
   if (FORCED_KEYWORD) {
     const lang = mode !== "auto" ? mode : detectLang(FORCED_KEYWORD) || "en";
+    // A human picked this one explicitly, so honour it — but warn if it looks off-theme so a
+    // typo or a stray copy-paste doesn't silently publish an unrelated article.
+    if (!isOnTopic(FORCED_KEYWORD)) {
+      console.warn(
+        `[relevance] WARNING: forced keyword "${FORCED_KEYWORD}" does not look on-topic for Sanatan Dharma. Proceeding because it was passed explicitly.`,
+      );
+    }
     return { keyword: FORCED_KEYWORD, related: [], lang };
   }
 
@@ -177,10 +185,15 @@ async function pickKeyword(ledger, mode) {
     .filter((o) => o.lang && !used.has(normalize(o.keyword)))
     .filter((o) => mode === "auto" || o.lang === mode);
 
-  // Skip candidates that just re-target an already-published topic (doorway-page guard) and
-  // pick the first genuinely distinct query instead.
+  // Skip candidates that are off-theme (GSC returns every query the site surfaced for, including
+  // unrelated ones) or that just re-target an already-published topic (doorway-page guard), and
+  // pick the first genuinely distinct, on-topic query instead.
   let top = null;
   for (const o of fresh) {
+    if (!isOnTopic(o.keyword)) {
+      console.log(`[relevance] skip "${o.keyword}" [${o.lang}] — not about Sanatan Dharma`);
+      continue;
+    }
     const dup = clustersWith(o.keyword, priorKeywords);
     if (dup) {
       console.log(`[dedup] skip "${o.keyword}" [${o.lang}] — same topic as existing "${dup}"`);
@@ -196,6 +209,7 @@ async function pickKeyword(ledger, mode) {
     );
     const related = fresh
       .filter((o) => o.lang === top.lang && o.keyword !== top.keyword)
+      .filter((o) => isOnTopic(o.keyword))
       .filter((o) => !clustersWith(o.keyword, [...priorKeywords, top.keyword]))
       .slice(0, 5)
       .map((o) => o.keyword);
