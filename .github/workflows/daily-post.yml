@@ -18,7 +18,12 @@ jobs:
   generate:
     runs-on: ubuntu-latest
     steps:
+      # persist-credentials: false prevents checkout from leaving its auth token in git
+      # config, which would otherwise collide with create-pull-request's own auth header
+      # ("Duplicate header: Authorization" -> HTTP 400).
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - uses: pnpm/action-setup@v6
 
