@@ -14,6 +14,13 @@ export const OPENAI_REASONING_EFFORT = "high";
 export const POST_LANG = "auto";
 export const HINDI_EVERY = 5;
 
+// Anti-duplication (doorway-page guard): how similar a new keyword's topic may be
+// to an already-published post before we treat it as the same intent and skip it.
+// jaccard = overlap of significant topic words / union. Higher = stricter (fewer skips).
+export const DEDUP = {
+  jaccard: 0.6,
+};
+
 export const COVER_IMAGE = true;
 
 export const COVER_BLOCKED_TERMS = ["sanatan apps", "sanatan app", "sanatanapp"];

@@ -140,6 +140,23 @@ Hard rules:
 - Neutral, devotional-but-inclusive tone. No sectarian, political, or disparaging claims.
 - Content must be original and substantive, not thin filler.
 
+WRITE LIKE A HUMAN, NOT AN AI.
+Write the way a knowledgeable, friendly person actually talks — plain, simple, everyday English a
+non-native reader can follow easily. Short words over long ones. Short sentences. Say things directly.
+- Prefer simple words: "use" not "utilise", "help" not "facilitate", "about" not "regarding",
+  "start" not "embark on", "part" not "aspect", "many" not "a myriad of".
+- BANNED AI-tell phrases and clichés — do not use these or anything like them: "In today's
+  fast-paced world", "In this digital age", "When it comes to", "It's important to note/remember",
+  "It's worth noting", "Whether you're a... or a...", "Look no further", "delve", "dive into",
+  "navigate the", "unlock", "unleash", "elevate", "embark", "journey" (as a metaphor), "realm",
+  "landscape", "tapestry", "testament to", "at the end of the day", "moreover", "furthermore",
+  "in conclusion", "in summary", "that being said", "rest assured", "seamless", "robust",
+  "cutting-edge", "game-changer", "treasure trove", "plethora", "vibrant", "bustling".
+- No hollow hype or filler intros. Get to the point in the first sentence.
+- Don't over-hedge. Say it once, clearly. Vary sentence length so it reads naturally.
+- Contractions are fine (it's, you'll, don't). Write to the reader as "you".
+- It should sound like a real person wrote it in one sitting, not like a generated article.
+
 THE KEYWORD IS NOT THE TOPIC.
 The keyword you are given is a raw search query copied from Google Search Console — it is
 literally what a person typed. It may be lowercase, misspelled, or several words mashed into
@@ -179,12 +196,16 @@ function keywordHandling(keyword) {
 - Set "keyword_display" to the natural spelled-out phrase you chose.`;
 }
 
-function userPrompt({ keyword, relatedKeywords, existingSlugs, lang }) {
+function userPrompt({ keyword, relatedKeywords, existingPosts, lang }) {
   const langLine =
     lang === "hi"
       ? `Write the ENTIRE article — title, description, body, and tags — in fluent, natural Hindi using Devanagari script. Keep the brand name "Sanatan Marg", the domain sanatanmarg.org, and the Google Play link exactly as-is. The "slug" field must still be Latin/ASCII.`
       : `Write the entire article in clear, natural English.`;
   const cats = CATEGORIES[lang];
+  const linkList = existingPosts
+    .slice(0, 20)
+    .map((p) => `- [${p.title}](${SITE_URL}/blog/${p.slug})`)
+    .join("\n");
   return `A real person typed this into Google: "${keyword}"
 Write the article that best answers what they actually wanted.
 ${langLine}
@@ -204,11 +225,16 @@ Requirements:
 - Make each H2 a question or a concrete promise a reader would actually type or click, and answer
   it in the first paragraph beneath it. Keep paragraphs short.
 - Include at least one bulleted or numbered list, and use H3s for sub-points.
+- Include at least one Markdown table where it genuinely helps the reader — a summary, comparison,
+  or quick-reference table (e.g. steps vs. meaning, do's vs. don'ts, timings, feature checklist).
+  Use real GitHub-flavoured Markdown table syntax (a header row, a "---" separator row, then rows).
+  Do not invent a table just to have one; if a table truly does not fit the topic, skip it.
 - Cover the topic thoroughly enough to stand alone: the practical how-to, the common mistakes, and
   the follow-up questions a curious reader would ask next. Depth is what ranks; filler is not.
 - End the body with a Frequently Asked Questions section (an H2) containing 3-5 concise Q&A pairs
   (use "### question?" then a 2-4 sentence answer that could be quoted on its own).
-- Naturally include 1-2 internal links using Markdown: the app site ${SITE_URL} and the Google Play page ${PLAY_STORE_URL}. If relevant, you may reference existing posts by linking to ${SITE_URL}/blog/<slug> using one of these slugs: ${existingSlugs.slice(0, 20).join(", ") || "(none yet)"}.
+- Naturally include 1-2 internal links using Markdown: the app site ${SITE_URL} and the Google Play page ${PLAY_STORE_URL}. Where it genuinely helps the reader, add 1-2 links to EXISTING posts, using ONLY the exact URLs from this list (never invent a /blog/ URL that is not below):
+${linkList || "(no existing posts yet — do not link to any /blog/ URL)"}
 - Mention how the Sanatan Marg app helps with this topic once, naturally — not as an ad.
 
 Return JSON with EXACTLY these fields:
@@ -220,8 +246,55 @@ Return JSON with EXACTLY these fields:
   "description": "string, 150-160 chars. A compelling meta description that states the answer and earns the click. Must NOT mention searching, and must NOT open with 'Searching for...'.",
   "category": "one of: ${cats.join(" | ")}",
   "tags": ["3-6 short tags"],
-  "body_markdown": "the full article body in Markdown, starting at ##"
-}`;
+  "body_markdown": "the full article body in Markdown, starting at ##",
+  "faq": [{ "question": "plain-text question", "answer": "plain-text answer, 1-3 sentences, no Markdown" }]
+}
+
+The "faq" array MUST contain the SAME questions and answers as the Frequently Asked Questions
+section in body_markdown (same language, 3-5 items), but as plain text with no Markdown, links, or
+"###" markers. This powers FAQ rich-snippet structured data, so the wording must match what the
+reader sees in the body.`;
+}
+
+function escapeRegExp(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+// Strip internal /blog/ links that point at a slug we did not offer (guards against the
+// model hallucinating an internal URL). Keeps the anchor text, drops only the broken link.
+function sanitizeInternalLinks(article, allowedSlugs) {
+  if (!article.body_markdown) return article;
+  const re = new RegExp(
+    `\\[([^\\]]+)\\]\\(${escapeRegExp(SITE_URL)}/blog/([^)\\s#?]+)[^)]*\\)`,
+    "g",
+  );
+  let stripped = 0;
+  article.body_markdown = article.body_markdown.replace(re, (whole, text, slug) => {
+    if (allowedSlugs.has(slug)) return whole;
+    stripped++;
+    return text;
+  });
+  if (stripped) {
+    console.warn(`[links] stripped ${stripped} internal link(s) to unknown slug(s).`);
+  }
+  return article;
+}
+
+// Keep only well-formed { question, answer } pairs; drop the field entirely if none survive.
+function normalizeFaq(article) {
+  if (!Array.isArray(article.faq)) {
+    delete article.faq;
+    return article;
+  }
+  const clean = article.faq
+    .map((f) => ({
+      question: typeof f?.question === "string" ? f.question.trim() : "",
+      answer: typeof f?.answer === "string" ? f.answer.trim() : "",
+    }))
+    .filter((f) => f.question && f.answer);
+  if (clean.length) article.faq = clean;
+  else delete article.faq;
+  return article;
 }
 
 const MAX_ATTEMPTS = 3;
@@ -243,16 +316,17 @@ async function draftArticle(messages) {
 export async function generateArticle({
   keyword,
   relatedKeywords = [],
-  existingSlugs = [],
+  existingPosts = [],
   lang = "en",
 }) {
   const messages = [
     { role: "system", content: SYSTEM_PROMPT },
     {
       role: "user",
-      content: userPrompt({ keyword, relatedKeywords, existingSlugs, lang }),
+      content: userPrompt({ keyword, relatedKeywords, existingPosts, lang }),
     },
   ];
+  const allowedSlugs = new Set(existingPosts.map((p) => p.slug));
 
   let article;
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
@@ -312,5 +386,7 @@ completely, fixing every problem above, and return the same JSON shape.`,
     if (article.cover_title)
       article.cover_title = capitalizeTitle(article.cover_title);
   }
+  sanitizeInternalLinks(article, allowedSlugs);
+  normalizeFaq(article);
   return article;
 }

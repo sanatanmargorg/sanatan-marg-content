@@ -2,9 +2,9 @@ import fs from "node:fs";
 import path from "node:path";
 import matter from "gray-matter";
 import { getClient, resolveSiteUrl, fetchKeywordOpportunities } from "./lib/gsc.mjs";
-import { generateArticle, slugify } from "./lib/generate.mjs";
+import { generateArticle, slugify, mashedTokens } from "./lib/generate.mjs";
 import { generateCoverPng } from "./lib/cover.mjs";
-import { SITE_URL, REPO, POST_LANG, HINDI_EVERY, COVER_IMAGE } from "./config.mjs";
+import { SITE_URL, REPO, POST_LANG, HINDI_EVERY, COVER_IMAGE, DEDUP } from "./config.mjs";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
 const ARTICLES_DIR = path.join(ROOT, "articles");
@@ -51,13 +51,23 @@ function readLedger() {
   }
 }
 
-function existingSlugs() {
+function existingPosts() {
   if (!fs.existsSync(ARTICLES_DIR)) return [];
   const out = [];
   const walk = (dir, prefix) => {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
       if (entry.isDirectory()) walk(path.join(dir, entry.name), `${prefix}${entry.name}/`);
-      else if (entry.name.endsWith(".md")) out.push(prefix + entry.name.replace(/\.md$/, ""));
+      else if (entry.name.endsWith(".md")) {
+        const slug = prefix + entry.name.replace(/\.md$/, "");
+        let title = slug;
+        try {
+          const parsed = matter(fs.readFileSync(path.join(dir, entry.name), "utf8"));
+          if (parsed.data?.title) title = String(parsed.data.title);
+        } catch {
+          // fall back to the slug as the title if frontmatter can't be parsed
+        }
+        out.push({ slug, title });
+      }
     }
   };
   walk(ARTICLES_DIR, "");
@@ -66,6 +76,67 @@ function existingSlugs() {
 
 function normalize(s) {
   return s.toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+// Words that describe how someone searches, not WHAT they searched for. Two keywords that differ
+// only by these are the same intent (e.g. "sanatan app" vs "free sanatan app download").
+const TOPIC_STOPWORDS = new Set([
+  "a", "an", "the", "and", "or", "of", "to", "in", "on", "at", "for", "with", "from", "by",
+  "how", "what", "why", "when", "which", "do", "does", "is", "are", "can", "should",
+  "your", "my", "me", "i", "best", "top", "good", "free", "online", "download", "downloads",
+  "install", "app", "apps", "application", "guide", "guides", "near", "vs",
+]);
+
+// Significant topic words for a keyword: lowercased, stopwords and very short words dropped.
+// Devanagari tokens are kept whole (Hindi keywords rarely collide with English ones).
+function topicTokens(keyword) {
+  return normalize(keyword)
+    .split(/[^\p{L}\p{N}]+/u)
+    .filter(Boolean)
+    .filter((t) => !TOPIC_STOPWORDS.has(t))
+    .filter((t) => t.length >= 3 || /[ऀ-ॿ]/.test(t));
+}
+
+// Two content words are "the same" if equal, or if the shorter (>=6 chars) is a full prefix of
+// the longer — catches spelling variants ("sanatan"/"sanatani", "hanuman"/"hanumanji") without
+// collapsing merely similar words ("panchang"/"panchami", neither of which prefixes the other).
+function tokenMatch(x, y) {
+  if (x === y) return true;
+  if (Math.min(x.length, y.length) < 6) return false;
+  return x.startsWith(y) || y.startsWith(x);
+}
+
+// True when every significant word of `sig` is a substring of some mashed token (e.g. the words
+// of "sanatan app" both live inside "hindusanatanapp").
+function mashedContains(mashed, sig) {
+  if (!sig.length) return false;
+  return mashed.some((m) => sig.every((t) => m.includes(t)));
+}
+
+// "X app" discovery queries: matches "app", "apps", "application" as a standalone word.
+const APP_INTENT = /\b(?:apps?|application)\b/i;
+
+// Return the prior keyword whose topic the candidate duplicates, or null if it's genuinely new.
+function clustersWith(keyword, priorKeywords) {
+  const a = topicTokens(keyword);
+  const aMashed = mashedTokens(keyword);
+  const aIsApp = APP_INTENT.test(keyword);
+  for (const prior of priorKeywords) {
+    const b = topicTokens(prior);
+    if (a.length && b.length) {
+      const inter = a.filter((x) => b.some((y) => tokenMatch(x, y))).length;
+      const union = a.length + b.length - inter;
+      const jaccard = union ? inter / union : 0;
+      const smaller = Math.min(a.length, b.length);
+      const subset = inter === smaller && smaller >= 2;
+      // Two "find me an app" queries about the same brand/topic ("sanatan app" vs "sanatana
+      // dharma app") are one intent even when an extra descriptor word drags the Jaccard down.
+      const appDup = aIsApp && APP_INTENT.test(prior) && inter >= 1;
+      if (jaccard >= DEDUP.jaccard || subset || appDup) return prior;
+    }
+    if (mashedContains(aMashed, b) || mashedContains(mashedTokens(prior), a)) return prior;
+  }
+  return null;
 }
 
 function trailingEnglish(ledger) {
@@ -89,6 +160,7 @@ async function pickKeyword(ledger, mode) {
   }
 
   const used = new Set(ledger.map((e) => normalize(e.keyword)));
+  const priorKeywords = ledger.map((e) => e.keyword);
   let opportunities = [];
   try {
     const client = getClient();
@@ -105,21 +177,36 @@ async function pickKeyword(ledger, mode) {
     .filter((o) => o.lang && !used.has(normalize(o.keyword)))
     .filter((o) => mode === "auto" || o.lang === mode);
 
-  if (fresh.length) {
-    const top = fresh[0];
+  // Skip candidates that just re-target an already-published topic (doorway-page guard) and
+  // pick the first genuinely distinct query instead.
+  let top = null;
+  for (const o of fresh) {
+    const dup = clustersWith(o.keyword, priorKeywords);
+    if (dup) {
+      console.log(`[dedup] skip "${o.keyword}" [${o.lang}] — same topic as existing "${dup}"`);
+      continue;
+    }
+    top = o;
+    break;
+  }
+
+  if (top) {
     console.log(
       `[pick] "${top.keyword}" [${top.lang}]  (impr=${top.impressions}, pos=${top.position.toFixed(1)}, ctr=${(top.ctr * 100).toFixed(1)}%)`,
     );
     const related = fresh
-      .filter((o) => o.lang === top.lang)
-      .slice(1, 6)
+      .filter((o) => o.lang === top.lang && o.keyword !== top.keyword)
+      .filter((o) => !clustersWith(o.keyword, [...priorKeywords, top.keyword]))
+      .slice(0, 5)
       .map((o) => o.keyword);
     return { keyword: top.keyword, related, lang: top.lang };
   }
 
   const lang = mode === "hi" ? "hi" : "en";
-  const fallback = FALLBACK_KEYWORDS[lang].find((k) => !used.has(normalize(k)));
-  if (!fallback) throw new Error("No unused keywords left (GSC + fallback exhausted).");
+  const fallback = FALLBACK_KEYWORDS[lang].find(
+    (k) => !used.has(normalize(k)) && !clustersWith(k, priorKeywords),
+  );
+  if (!fallback) throw new Error("No unused, distinct keywords left (GSC + fallback exhausted).");
   console.log(`[pick] fallback keyword [${lang}]: "${fallback}"`);
   return { keyword: fallback, related: [], lang };
 }
@@ -140,7 +227,8 @@ async function main() {
   if (!process.env.OPENAI_API_KEY) throw new Error("OPENAI_API_KEY is not set.");
 
   const ledger = readLedger();
-  const slugs = existingSlugs();
+  const posts = existingPosts();
+  const slugs = posts.map((p) => p.slug);
 
   const mode = resolveRunLang(ledger);
   if (mode === "hi" && RUN_POST_LANG === "auto") {
@@ -150,15 +238,15 @@ async function main() {
   }
   const { keyword, related, lang } = await pickKeyword(ledger, mode);
 
-  const sameLangSlugs = slugs.filter((sl) =>
-    lang === "hi" ? sl.startsWith("hi/") : !sl.startsWith("hi/"),
+  const sameLangPosts = posts.filter((p) =>
+    lang === "hi" ? p.slug.startsWith("hi/") : !p.slug.startsWith("hi/"),
   );
 
   console.log(`[openai] generating ${lang} article for "${keyword}" ...`);
   const article = await generateArticle({
     keyword,
     relatedKeywords: related,
-    existingSlugs: sameLangSlugs,
+    existingPosts: sameLangPosts,
     lang,
   });
 
@@ -187,6 +275,7 @@ async function main() {
     category: article.category,
     tags: article.tags,
     lang,
+    ...(Array.isArray(article.faq) && article.faq.length ? { faq: article.faq } : {}),
     ...(coverImage ? { coverImage } : {}),
   };
 

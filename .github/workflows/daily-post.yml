@@ -11,7 +11,8 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: write # allows committing the new post back to this repo
+  contents: write # allows committing the new post to a branch
+  pull-requests: write # allows opening the daily review PR
 
 jobs:
   generate:
@@ -38,14 +39,30 @@ jobs:
           GSC_CREDENTIALS: ${{ secrets.GSC_CREDENTIALS }}
         run: node scripts/generate-post.mjs
 
-      - name: Commit & push
-        run: |
-          git config user.name "sanatan-bot"
-          git config user.email "bot@users.noreply.github.com"
-          git add articles/ images/ data/used-keywords.json
-          if git diff --cached --quiet; then
-            echo "Nothing new to commit."
-          else
-            git commit -m "post: auto-generated $(date -u +%F)"
-            git push
-          fi
+      - name: Today's date
+        id: date
+        run: echo "today=$(date -u +%F)" >> "$GITHUB_OUTPUT"
+
+      # Opens (or updates) a PR with the day's post for a ~2-minute mobile review before it goes
+      # live. If the generator produced no changes, no PR is created.
+      - name: Open review PR
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          add-paths: |
+            articles
+            images
+            data/used-keywords.json
+          branch: auto/daily-post
+          delete-branch: true
+          commit-message: "post: auto-generated ${{ steps.date.outputs.today }}"
+          author: "sanatan-bot <bot@users.noreply.github.com>"
+          committer: "sanatan-bot <bot@users.noreply.github.com>"
+          title: "post: auto-generated ${{ steps.date.outputs.today }}"
+          body: |
+            Automated daily blog post for **${{ steps.date.outputs.today }}**.
+
+            **2-minute review:**
+            1. Does the title make sense and match the topic?
+            2. Does the article actually answer the search query (not describe the search)?
+            3. Merge to publish. The site deploys automatically on merge to `main`.
