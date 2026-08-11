@@ -10,7 +10,8 @@ import { SITE_URL, REPO, POST_LANG, HINDI_EVERY, COVER_IMAGE, DEDUP } from "./co
 const ROOT = path.resolve(import.meta.dirname, "..");
 const ARTICLES_DIR = path.join(ROOT, "articles");
 const IMAGES_DIR = path.join(ROOT, "images");
-const LEDGER = path.join(ROOT, "data", "used-keywords.json");
+const LEDGER_DIR = path.join(ROOT, "data", "used-keywords");
+const PENDING_DIR = path.join(ROOT, ".pending-ledger");
 const PREVIEW_DIR = path.join(ROOT, "_preview");
 
 const DRY = process.argv.includes("--dry-run");
@@ -44,12 +45,38 @@ function detectLang(text) {
   return "en";
 }
 
+// The ledger is one JSON file per published post rather than a single array, so that the daily
+// review PRs waiting in the queue never collide: each PR adds exactly one new file and merges
+// cleanly whatever order they're merged in. Filenames are date-prefixed, so sorting by name
+// yields chronological order — trailingEnglish() depends on that.
+function readEntries(dir) {
+  if (!fs.existsSync(dir)) return [];
+  return fs
+    .readdirSync(dir)
+    .filter((f) => f.endsWith(".json"))
+    .sort()
+    .map((f) => {
+      try {
+        return JSON.parse(fs.readFileSync(path.join(dir, f), "utf8"));
+      } catch {
+        return null; // a half-written or hand-edited entry shouldn't kill the run
+      }
+    })
+    .filter((e) => e && typeof e.keyword === "string");
+}
+
 function readLedger() {
-  try {
-    return JSON.parse(fs.readFileSync(LEDGER, "utf8"));
-  } catch {
-    return [];
+  const entries = readEntries(LEDGER_DIR);
+  // Keywords claimed by daily PRs that are open but not merged yet. Every run branches from
+  // main, so without these the run can't see what yesterday's un-merged PR already took and
+  // would re-pick the same top query. The workflow drops them into a gitignored scratch dir.
+  const claimed = new Set(entries.map((e) => normalize(e.keyword)));
+  for (const entry of readEntries(PENDING_DIR)) {
+    if (claimed.has(normalize(entry.keyword))) continue;
+    claimed.add(normalize(entry.keyword));
+    entries.push(entry);
   }
+  return entries;
 }
 
 function existingPosts() {
@@ -242,7 +269,11 @@ async function main() {
 
   const ledger = readLedger();
   const posts = existingPosts();
-  const slugs = posts.map((p) => p.slug);
+  // Ledger slugs cover posts claimed by still-open PRs too, which aren't on disk here — without
+  // them two pending PRs could pick the same slug and collide on the article file at merge.
+  const slugs = [...new Set([...posts.map((p) => p.slug), ...ledger.map((e) => e.slug)])].filter(
+    Boolean,
+  );
 
   const mode = resolveRunLang(ledger);
   if (mode === "hi" && RUN_POST_LANG === "auto") {
@@ -307,8 +338,9 @@ async function main() {
   }
 
   writeFileEnsured(path.join(ARTICLES_DIR, `${slug}.md`), fileContents);
-  ledger.push({ keyword, slug, lang, date: frontmatter.date });
-  fs.writeFileSync(LEDGER, JSON.stringify(ledger, null, 2) + "\n");
+  const entry = { keyword, slug, lang, date: frontmatter.date };
+  const entryFile = `${entry.date}-${slug.replace(/\//g, "-")}.json`;
+  writeFileEnsured(path.join(LEDGER_DIR, entryFile), JSON.stringify(entry, null, 2) + "\n");
 
   console.log(`\n✅ Wrote articles/${slug}.md`);
   console.log(`   Live (within ~1h): ${urlPath}`);

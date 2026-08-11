@@ -4,3 +4,5 @@ node_modules/
 !.env.example
 _preview/
 MODIFY.md
+# Keywords claimed by open daily PRs; rebuilt by the workflow on every run.
+.pending-ledger/

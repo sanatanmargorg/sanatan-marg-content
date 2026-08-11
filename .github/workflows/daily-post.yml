@@ -38,18 +38,44 @@ jobs:
       - name: Install Devanagari fonts (for Hindi cover images)
         run: sudo apt-get update && sudo apt-get install -y fonts-noto-core fonts-indic
 
+      - name: Today's date
+        id: date
+        run: echo "today=$(date -u +%F)" >> "$GITHUB_OUTPUT"
+
+      # Each day gets its own branch off main, so several review PRs can sit in the queue at
+      # once (typically merged in a batch at the weekend). None of them can see the others'
+      # posts, so without this step every run would re-pick the same top GSC query and produce
+      # a pile of near-duplicate articles. Copy the ledger entries out of every open daily
+      # branch into a gitignored scratch dir that the generator treats as already-claimed.
+      - name: Collect keywords claimed by open daily PRs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p .pending-ledger
+          # persist-credentials is off, so authenticate this one fetch inline rather than
+          # leaving a token in git config for create-pull-request to trip over.
+          if ! git fetch --no-tags --depth=1 \
+            "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}" \
+            "+refs/heads/auto/daily-post-*:refs/remotes/pending/*"; then
+            # Don't fail the run over this — a post is better than no post — but make it loud,
+            # because the fallback behaviour is "might duplicate a queued topic".
+            echo "::warning::Could not fetch open daily branches; today's post may repeat a queued one."
+          fi
+          for ref in $(git for-each-ref --format='%(refname)' 'refs/remotes/pending/*'); do
+            for file in $(git ls-tree -r --name-only "$ref" -- data/used-keywords); do
+              git show "$ref:$file" > ".pending-ledger/$(basename "$file")"
+            done
+          done
+          echo "claimed by open PRs: $(ls -1 .pending-ledger | wc -l) entries"
+
       - name: Generate today's post
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           GSC_CREDENTIALS: ${{ secrets.GSC_CREDENTIALS }}
         run: node scripts/generate-post.mjs
 
-      - name: Today's date
-        id: date
-        run: echo "today=$(date -u +%F)" >> "$GITHUB_OUTPUT"
-
-      # Opens (or updates) a PR with the day's post for a ~2-minute mobile review before it goes
-      # live. If the generator produced no changes, no PR is created.
+      # Opens a PR with the day's post for a ~2-minute mobile review before it goes live. If the
+      # generator produced no changes, no PR is created.
       - name: Open review PR
         uses: peter-evans/create-pull-request@v6
         with:
@@ -57,8 +83,8 @@ jobs:
           add-paths: |
             articles
             images
-            data/used-keywords.json
-          branch: auto/daily-post
+            data/used-keywords
+          branch: auto/daily-post-${{ steps.date.outputs.today }}
           delete-branch: true
           commit-message: "post: auto-generated ${{ steps.date.outputs.today }}"
           author: "sanatan-bot <bot@users.noreply.github.com>"
@@ -71,3 +97,7 @@ jobs:
             1. Does the title make sense and match the topic?
             2. Does the article actually answer the search query (not describe the search)?
             3. Merge to publish. The site deploys automatically on merge to `main`.
+
+            One PR per day — they queue up safely and can be merged in any order, together or
+            individually. To reject this post, close the PR **and delete its branch**: while the
+            branch exists its keyword stays reserved, so no later run will retry the topic.
